@@ -1,0 +1,27 @@
+<!-- Public menu structure verified against pokeidle.io/app v1.240.1. No game scripts or requests. -->
+<style id="test-native-menu-css">
+  .menu-topo { display:flex; gap:6px; flex-wrap:wrap; padding:10px; justify-content:center; }
+  .menu-topo button { flex:1 1 100px; min-width:0; max-width:190px; height:62px; display:flex; align-items:center; justify-content:center; gap:14px; padding:0 10px; font:700 12.5px Tahoma; color:white; background:#68358c; box-shadow:inset 0 0 0 8px #372238; }
+  .menu-topo button > :first-child { width:20px; height:20px; box-shadow:0 0 0 6px #6d2f96; }
+  html.modo-imersivo .menu-topo { display:none!important; }
+</style>
+<main class="col centro" id="test-game-main">
+  <div id="test-menu-container">
+    <nav class="menu-topo">
+      <button data-modal="pokedex" data-ico="img:site/assets/ui/menu-pokedex.png"><span data-i18n="menu.pokedex">Pokédex</span></button>
+      <button data-modal="mapa" data-ico="img:site/assets/ui/menu-mapa.png" title="Abrir mapa"><span data-i18n="menu.mapa">Mapa</span></button>
+      <button data-modal="market" data-ico="img:site/assets/ui/menu-market.png"><span data-i18n="menu.market">Market</span></button>
+      <button data-modal="passe" data-ico="img:/img/passe-free.png"><span data-i18n="menu.passe">Passe</span></button>
+      <button data-modal="ranking" data-ico="img:/img/menu-ranks.png"><span data-i18n="menu.ranking">Ranks</span></button>
+      <button data-modal="bosses" data-ico="img:site/assets/ui/menu-bosses.png"><span data-i18n="menu.bosses">Boss</span></button>
+      <button data-modal="pvp" data-ico="img:/img/menu-pvp.png"><span data-i18n="menu.pvp">PvP</span></button>
+      <button data-modal="ginasios" data-ico="img:/img/menu-ginasio.png"><span data-i18n="menu.ginasios">Ginásio</span></button>
+      <button data-modal="campeonato" data-ico="img:site/assets/ui/menu-ranking.png"><span data-i18n="menu.campeonato">Torneio</span></button>
+      <button data-modal="community" data-ico="img:site/assets/ui/menu-comunidade.png"><span data-i18n="menu.comunidade">RMT</span></button>
+      <button data-modal="casa" data-ico="img:/img/itens/casa-rara.png"><span data-i18n="menu.casa">Casa</span></button>
+      <button data-modal="shop" data-ico="img:/img/moeda-diamante.png"><span data-i18n="menu.shop">Shop</span></button>
+      <button data-modal="pokepedia" data-ico="img:/img/menu-pokepedia.png"><span data-i18n="menu.pokepedia">Wiki</span></button>
+    </nav>
+  </div>
+  <div id="hud-team">HP 82/100</div>
+</main>

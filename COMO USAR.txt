@@ -1,0 +1,25 @@
+PIO NAILO RUST - COMO USAR
+
+1. Extraia o ZIP inteiro ou clone o repositorio/seu fork.
+2. Abra: Abrir PIO Rebosteio.bat
+3. Aguarde a preparacao inicial: Rust, C++ Build Tools/SDK, WebView2,
+   Tauri CLI, Python e Camoufox. Downloads e compilacao podem demorar
+   e ocupar varios GB; o Windows pode pedir administrador ou reinicio.
+4. Configure/confira as quatro contas e use Logar equipe.
+
+Nao precisa de Node.js ou Electron para este inicializador.
+O antigo Abrir Poke Idle IO.bat foi removido.
+Crie atalhos para o BAT novo, nao para executaveis antigos.
+
+Git: o BAT tenta atualizar pelo upstream do branch, apenas com clone
+limpo e avanco direto. Nao sobrescreve alteracoes locais.
+ZIP: baixe uma nova copia para atualizar.
+
+Interface: rust-migration/ui. Backend: rust-migration/src-tauri/src.
+Reabra pelo BAT depois de editar. Interface usa arquivos locais;
+Rust compila incrementalmente. Nao gera EXE de distribuicao por edicao.
+O terminal nao fica aberto. Consulte .runtime/launcher.log em falhas.
+Fechar encerra; minimizar usa a bandeja quando habilitada.
+
+Preserve os dados em %APPDATA%/pionailo.
+Leia TUTORIAL.md para instalacao manual e CONTRIBUTING.md para forks.

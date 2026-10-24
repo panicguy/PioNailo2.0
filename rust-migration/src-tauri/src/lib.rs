@@ -13,6 +13,7 @@ pub mod kick_rewards;
 pub mod twitch_service;
 pub mod webview_manager;
 pub mod webview_memory;
+pub mod pio_arquivos;
 
 use std::fs;
 use std::path::PathBuf;
@@ -134,10 +135,44 @@ fn preset_read(name: String) -> Option<String> {
 }
 
 fn get_app_data_dir() -> PathBuf {
-    if let Some(roaming) = std::env::var_os("APPDATA") {
-        PathBuf::from(roaming).join("pionailo")
-    } else {
-        PathBuf::from(".").join("data")
+    crate::credentials::get_app_data_dir()
+}
+
+#[tauri::command]
+fn instance_get() -> serde_json::Value {
+    let id = crate::credentials::get_instance_id();
+    serde_json::json!({
+        "id": id,
+        "isSecondary": id > 1,
+        "accountOffset": (id - 1) * 4
+    })
+}
+
+#[tauri::command]
+fn instance_new(target_id: Option<usize>) -> Result<bool, String> {
+    let next_id = target_id.unwrap_or_else(|| crate::credentials::get_instance_id() + 1);
+    spawn_new_instance(next_id)
+}
+
+pub fn spawn_new_instance(target_id: usize) -> Result<bool, String> {
+    let current_exe = std::env::current_exe().map_err(|e| format!("Não foi possível localizar executável atual: {}", e))?;
+    println!("[Instance] Abrindo nova instância {} com executável: {:?}", target_id, current_exe);
+
+    #[cfg(windows)]
+    {
+        let mut cmd = std::process::Command::new(&current_exe);
+        cmd.arg(format!("--instance={}", target_id));
+        cmd.env("PIO_INSTANCE", target_id.to_string());
+        cmd.spawn().map_err(|e| format!("Falha ao abrir nova instância: {}", e))?;
+        Ok(true)
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = std::process::Command::new(&current_exe);
+        cmd.arg(format!("--instance={}", target_id));
+        cmd.env("PIO_INSTANCE", target_id.to_string());
+        cmd.spawn().map_err(|e| format!("Falha ao abrir nova instância: {}", e))?;
+        Ok(true)
     }
 }
 
@@ -197,9 +232,65 @@ async fn webhook_send(url: String, text: String) -> bool {
     client.post(&url).json(&body).send().await.is_ok()
 }
 
+#[derive(Serialize)]
+pub struct ExtensionResponse {
+    pub status: u16,
+    pub body: String,
+}
+
+// Porta do baixaUserScript do Electron: a interface espera {ok,url,code,error}.
+// So https em github.com/raw.githubusercontent.com, link /blob/ vira raw, ate 3 redirecionamentos,
+// 2 MB e 12 s; pagina HTML nao e aceita como script.
+fn userscript_raw_url(u: url::Url) -> url::Url {
+    if u.host_str() == Some("github.com") {
+        let p: Vec<&str> = u.path().split('/').filter(|s| !s.is_empty()).collect();
+        if let Some(i) = p.iter().position(|s| *s == "blob") {
+            if i >= 2 && p.len() > i + 2 {
+                let raw = format!("https://raw.githubusercontent.com/{}/{}/{}", p[0], p[1], p[i + 1..].join("/"));
+                if let Ok(r) = url::Url::parse(&raw) { return r; }
+            }
+        }
+    }
+    u
+}
+
 #[tauri::command]
-async fn userscript_fetch(url: String) -> userscripts::Response {
-    userscripts::fetch(&url, true).await
+async fn userscript_fetch(url: String) -> serde_json::Value {
+    let fail = |e: &str| serde_json::json!({"ok": false, "error": e});
+    let Ok(mut u) = url::Url::parse(url.trim()).map(userscript_raw_url) else { return fail("Link inválido."); };
+    let client = match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(12))
+        .user_agent(concat!("PIO-Rebosteio/", env!("CARGO_PKG_VERSION")))
+        .build() { Ok(c) => c, Err(_) => return fail("Não foi possível acessar o GitHub.") };
+    for hops in 0..=3 {
+        let allowed = u.scheme() == "https"
+            && matches!(u.host_str(), Some("github.com") | Some("raw.githubusercontent.com"))
+            && u.path().to_ascii_lowercase().ends_with(".js");
+        if !allowed {
+            return fail(if hops > 0 { "O GitHub redirecionou para um endereço fora da lista (link de release?). Use o link do arquivo .js dentro do repositório." } else { "Use um link https do GitHub para um arquivo .js" });
+        }
+        let resp = match client.get(u.clone()).header("Accept", "text/plain").send().await {
+            Ok(r) => r, Err(_) => return fail("Não foi possível acessar o GitHub."),
+        };
+        let status = resp.status();
+        if status.is_redirection() {
+            if hops == 3 { return fail("Redirecionamentos demais."); }
+            let next = resp.headers().get("location").and_then(|v| v.to_str().ok()).and_then(|l| u.join(l).ok());
+            match next { Some(n) => { u = userscript_raw_url(n); continue; } None => return fail("Redirecionamento inválido.") }
+        }
+        if status.as_u16() != 200 { return fail(&format!("GitHub respondeu HTTP {}", status.as_u16())); }
+        if resp.content_length().map(|n| n > 2 * 1024 * 1024).unwrap_or(false) { return fail("O script passa de 2 MB."); }
+        let Ok(bytes) = resp.bytes().await else { return fail("Falha ao ler o script."); };
+        if bytes.len() > 2 * 1024 * 1024 { return fail("O script passa de 2 MB."); }
+        let code = String::from_utf8_lossy(&bytes).to_string();
+        let t = code.trim();
+        if t.is_empty() || t.starts_with('<') {
+            return fail("Esse link não devolveu um arquivo .js. Abra o arquivo no GitHub e copie o link dele.");
+        }
+        return serde_json::json!({"ok": true, "url": u.to_string(), "code": code});
+    }
+    fail("Redirecionamentos demais.")
 }
 
 #[tauri::command]
@@ -433,14 +524,25 @@ async fn kick_point_channels(manager: tauri::State<'_, Arc<kick_service::KickSer
 
 // ----------------- AUTH & CAMOUFOX -----------------
 
+fn login_components(app: &AppHandle) -> Option<(PathBuf, PathBuf, Option<PathBuf>)> {
+    if let Ok(resources) = app.path().resource_dir() {
+        let runtime = resources.join("login-runtime");
+        let python = runtime.join("python/python.exe");
+        let script = runtime.join("turnstile_solver.py");
+        let browser = runtime.join("camoufox/camoufox.exe");
+        if python.is_file() && script.is_file() && browser.is_file() {
+            return Some((python, script, Some(browser)));
+        }
+    }
+    [PathBuf::from("tools/turnstile_solver.py"), PathBuf::from("../tools/turnstile_solver.py")]
+        .into_iter().find(|p| p.is_file())
+        .map(|script| (std::env::var_os("PIO_NAILO_PYTHON").map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("python")), script, None))
+}
+
 #[tauri::command]
-fn camoufox_check() -> serde_json::Value {
-    let candidates = [
-        PathBuf::from("tools/turnstile_solver.py"),
-        PathBuf::from("../tools/turnstile_solver.py"),
-    ];
-    let available = candidates.iter().any(|p| p.exists());
-    json!({ "available": available })
+fn camoufox_check(app: AppHandle) -> serde_json::Value {
+    json!({ "available": login_components(&app).is_some() })
 }
 
 #[tauri::command]
@@ -458,13 +560,7 @@ async fn camoufox_login(
     let password = data.get("password").and_then(|v| v.as_str()).unwrap_or("");
     let proxy = data.get("proxy").cloned();
 
-    let candidates = [
-        PathBuf::from("tools/turnstile_solver.py"),
-        PathBuf::from("../tools/turnstile_solver.py"),
-    ];
-    let script = candidates.into_iter().find(|p| p.exists());
-
-    if let Some(script_path) = script {
+    if let Some((python, script_path, browser)) = login_components(&app) {
         let payload = json!({
             "mode": "login",
             "email": email,
@@ -475,8 +571,8 @@ async fn camoufox_login(
         });
         let json_str = payload.to_string();
 
-        let python = std::env::var_os("PIO_NAILO_PYTHON").unwrap_or_else(|| "python".into());
         let mut command = tokio::process::Command::new(python);
+        if let Some(browser) = browser { command.env("PIO_NAILO_CAMOUFOX", browser); }
         #[cfg(windows)]
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
         let output = command.arg(script_path)
@@ -697,6 +793,11 @@ pub fn run() {
 
     #[allow(unused_mut)]
     let mut context=tauri::generate_context!();
+    let id = crate::credentials::get_instance_id();
+    if id > 1 {
+        context.config_mut().identifier = format!("com.pionailo.launcher.instancia{}", id);
+        context.config_mut().app.windows[0].title = format!("PIO Rebosteio (Instância {})", id);
+    }
     // An isolated native profile is available only in debug builds for lifecycle tests.
     #[cfg(debug_assertions)]
     if let Some(path)=std::env::var_os("PIO_NAILO_TEST_PROFILE") {
@@ -809,7 +910,15 @@ pub fn run() {
             webview_eval_result,
             game_console_message,
             webview_fill_creds,
-            webview_settings
+            webview_settings,
+            instance_get,
+            instance_new,
+            pio_arquivos::pio_pasta,
+            pio_arquivos::pio_salvar,
+            pio_arquivos::pio_ler,
+            pio_arquivos::pio_existe,
+            pio_arquivos::pio_listar,
+            pio_arquivos::pio_mover
         ])
         .run(context)
         .expect("erro ao rodar o aplicativo PIO Nailo em Rust");

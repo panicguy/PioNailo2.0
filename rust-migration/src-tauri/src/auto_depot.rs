@@ -14,8 +14,7 @@ impl Default for Preferences {
     fn default() -> Self { Self { enabled: false, configured: false } }
 }
 fn path() -> PathBuf {
-    PathBuf::from(std::env::var_os("APPDATA").unwrap_or_else(|| ".".into()))
-        .join("pionailo").join("auto-depot-v2.json")
+    crate::credentials::get_app_data_dir().join("auto-depot-v2.json")
 }
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
